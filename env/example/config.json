@@ -1,0 +1,40 @@
+[
+	{
+		"project": "project name",
+		"environment": "dev",
+
+		"remote_path": "path/to/remote/project/root",
+		"remote_cache_path": "path/to/remote/project/cache",
+
+		"git_path": "path/to/git/repo",
+		"git_src_path": "path/to/git/src",
+		"backup_path": "/home/ichigo/bkup/self_interview",
+
+		"db_host": "db host name",
+		"db_host_reader": "db host name for reader",
+		"db_port": 3306,
+		"db_name": "db name",
+		"db_user": "db user",
+		"db_password": "db password",
+		"db_root_user": "db root user",
+		"db_root_password": "db root password",
+
+		"connect_info":
+		{
+			"host": "host name",
+			"port": 22,
+			"user": "user",
+			"identity_file": "path/to/key_file"
+		},
+
+		"tunnels":
+		[
+			{
+				"host": "bastion host name",
+				"port": 22,
+				"user": "user",
+				"identity_file": "path/to/key_file"
+			}
+		]
+	}
+]
