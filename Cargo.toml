@@ -1,10 +1,12 @@
 [package]
 name = "resm"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["ichigo-dev <dev.honda.ichigo@gmail.com>"]
 description = "Remote Server Management tools"
 license = "MIT"
+documentation = "https://docs.rs/resm"
+repository = "https://github.com/ichigo-dev/resm"
 
 [dependencies]
 async-recursion = "1.0.5"
