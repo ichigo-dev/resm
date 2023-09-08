@@ -1,4 +1,4 @@
-# Remote Server Control tools
+# Remote Server Management tools
 
 A group of tools for simplifying the work done by connecting to a remote server
 in the development of web systems.

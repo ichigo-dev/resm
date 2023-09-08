@@ -246,6 +246,7 @@ enum Subcommands
         #[clap(
             short = 't',
             long,
+            default_value = "",
         )]
         target_path: String,
     },
