@@ -3,6 +3,8 @@ name = "resc"
 version = "0.1.0"
 edition = "2021"
 authors = ["ichigo-dev <dev.honda.ichigo@gmail.com>"]
+description = "Remote Server Control tools"
+license = "MIT"
 
 [dependencies]
 async-recursion = "1.0.5"
