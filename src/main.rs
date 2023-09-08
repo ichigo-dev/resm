@@ -138,7 +138,7 @@ use clap::{ Parser, Subcommand };
 //------------------------------------------------------------------------------
 #[derive(Debug, Parser)]
 #[command(
-    name = "RESC - Remote Server Control tools",
+    name = "RESM - Remote Server Management tools",
     version = env!("CARGO_PKG_VERSION"),
     author = env!("CARGO_PKG_AUTHORS"),
 )]

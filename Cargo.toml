@@ -1,9 +1,9 @@
 [package]
-name = "resc"
+name = "resm"
 version = "0.1.0"
 edition = "2021"
 authors = ["ichigo-dev <dev.honda.ichigo@gmail.com>"]
-description = "Remote Server Control tools"
+description = "Remote Server Management tools"
 license = "MIT"
 
 [dependencies]

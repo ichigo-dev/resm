@@ -94,7 +94,7 @@ asterisk (*).
 Execute the following command to generate the SSH configuration file.
 
 ```sh
-$ resc init
+$ resm init
 ```
 
 Place the generated config file in `$HOME/.ssh/config` or append appropriately.
