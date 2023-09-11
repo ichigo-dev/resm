@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use glob::glob;
 use colored::Colorize;
 use chrono::Local;
-use ssh::Session;
+use ssh::{ Session, Channel };
 
 //------------------------------------------------------------------------------
 /// Loads JSON files.
@@ -66,12 +66,22 @@ pub fn get_session( project: &str ) -> Session
 }
 
 //------------------------------------------------------------------------------
+/// Waits for the specified channel to finish.
+//------------------------------------------------------------------------------
+pub fn wait_exec( channel: &Channel )
+{
+    while channel.get_exit_status().is_none()
+    {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+//------------------------------------------------------------------------------
 /// Gets file paths in the specified directory.
 //------------------------------------------------------------------------------
 pub fn get_file_paths( dir: &str ) -> Vec<PathBuf>
 {
     let mut file_paths: Vec<PathBuf> = Vec::new();
-    println!("{}", dir);
     for entry in glob(&(dir.to_string() + "/**/*")).unwrap()
     {
         match entry

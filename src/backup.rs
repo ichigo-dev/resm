@@ -3,6 +3,7 @@
 use crate::ssh_config::SshConfig;
 use crate::util::{
     get_session,
+    wait_exec,
     print_sep,
     get_current_time_for_filename,
 };
@@ -62,7 +63,9 @@ pub fn backup
         channel.open_session().unwrap();
         let command = format!("zip -r {} {}", &backup_file, &remote_path);
         channel.request_exec(command.as_bytes()).unwrap();
+        wait_exec(&channel);
         channel.send_eof().unwrap();
+        channel.close();
     }
 
     {
@@ -73,6 +76,7 @@ pub fn backup
 
         let mut file = File::create(&backup_path).unwrap();
         file.write_all(&buf).unwrap();
+        scp.close();
     }
 
     {
@@ -81,6 +85,7 @@ pub fn backup
         let command = format!("rm {}", &backup_file);
         channel.request_exec(command.as_bytes()).unwrap();
         channel.send_eof().unwrap();
+        channel.close();
     }
     println!("Done.");
 }
@@ -136,12 +141,14 @@ pub fn backup_db
             &target_tables.join(" "),
         );
         channel.request_exec(command.as_bytes()).unwrap();
+        wait_exec(&channel);
         channel.send_eof().unwrap();
 
         let mut buf = Vec::new();
         channel.stdout().read_to_end(&mut buf).unwrap();
         let mut err = Vec::new();
         channel.stderr().read_to_end(&mut err).unwrap();
+        channel.close();
 
         println!("{}", String::from_utf8_lossy(&err));
         let mut file = File::create(&backup_path).unwrap();

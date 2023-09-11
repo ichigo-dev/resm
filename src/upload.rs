@@ -3,6 +3,7 @@
 use crate::ssh_config::SshConfig;
 use crate::util::{
     get_session,
+    wait_exec,
     get_file_paths,
     print_sep,
     confirm,
@@ -16,7 +17,7 @@ use std::io::{ Read, Write };
 use colored::Colorize;
 use git2::{ Repository, StatusOptions };
 use zip::write::{ ZipWriter, FileOptions };
-use ssh::{ Scp, WRITE, RECURSIVE };
+use ssh::{ WRITE, RECURSIVE };
 
 //------------------------------------------------------------------------------
 /// Uploads all files in the local repository to the remote server.
@@ -55,108 +56,97 @@ pub fn upload_all
     {
         let mut channel = session.channel_new().unwrap();
         channel.open_session().unwrap();
-        let command = format!("rm -r {}", &remote_target_path);
+        let command = format!("rm -r {}/*", &remote_target_path);
         channel.request_exec(command.as_bytes()).unwrap();
         channel.send_eof().unwrap();
-
-        let command = format!("mkdir {}", &remote_target_path);
-        channel.request_exec(command.as_bytes()).unwrap();
-        channel.send_eof().unwrap();
+        channel.close();
     }
     println!("Removed.\n");
-    println!("Upload files.");
 
     //  Uploads all files.
-    let mut session = get_session(project);
+    println!("Upload files.");
+    let paths = get_file_paths(&git_src_path);
+
+    if zip
     {
-        let mut scp = session
-            .scp_new(WRITE|RECURSIVE, &remote_target_path)
-            .unwrap();
-        let paths = get_file_paths(&git_src_path);
+        //  Creates a temporary zip file.
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let temp_file = "temp_".to_string() + &now.to_string() + ".zip";
 
-        if zip
+        let zip_file = File::create(&temp_file).unwrap();
+        let mut zip = ZipWriter::new(zip_file);
+        for path in paths
         {
-            //  Creates a temporary zip file.
-            let now = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
-            let temp_file = "temp_".to_string() + &now.to_string() + ".zip";
+            let path_str = path.to_str().unwrap();
 
-            let zip_file = File::create(&temp_file).unwrap();
-            let mut zip = ZipWriter::new(zip_file);
-            for path in paths
+            //  Skip if the target path is specified and the path is not in
+            //  the target path.
+            if target_path.len() > 0
             {
-                let path_str = path.to_str().unwrap();
-
-                //  Skip if the target path is specified and the path is not in
-                //  the target path.
-                if target_path.len() > 0
+                let target_path = git_src_path.clone() + "/" + &target_path;
+                if path_str.starts_with(&target_path) == false
                 {
-                    let target_path = git_src_path.clone() + "/" + &target_path;
-                    if path_str.starts_with(&target_path) == false
-                    {
-                        continue;
-                    }
+                    continue;
                 }
-
-                //  Adds the file to the zip file.
-                let path_str = path_str.replace(&git_src_path, "");
-                zip.start_file(path_str, FileOptions::default()).unwrap();
-                let content = std::fs::read(path.to_str().unwrap()).unwrap();
-                zip.write_all(&content).unwrap();
             }
-            zip.finish().unwrap();
 
-            //  Uploads the zip file.
-            let remote_path_str = remote_path.clone() + "/" + &temp_file;
-            upload
-            (
-                &mut scp,
-                &Path::new(&temp_file),
-                &Path::new(&remote_path_str),
-            );
-
-            let mut session = get_session(project);
-            {
-                let mut channel = session.channel_new().unwrap();
-                channel.open_session().unwrap();
-                let command = format!
-                (
-                    "unzip -o {} -d {}",
-                    &remote_path_str,
-                    &remote_path
-                );
-                channel.request_exec(command.as_bytes()).unwrap();
-                channel.send_eof().unwrap();
-
-                let command = format!("rm {}", &remote_path_str);
-                channel.request_exec(command.as_bytes()).unwrap();
-                channel.send_eof().unwrap();
-            }
-            std::fs::remove_file(&temp_file).unwrap();
+            //  Adds the file to the zip file.
+            let path_str = path_str.replace(&git_src_path, "");
+            zip.start_file(path_str, FileOptions::default()).unwrap();
+            let content = std::fs::read(path.to_str().unwrap()).unwrap();
+            zip.write_all(&content).unwrap();
         }
-        else
+        zip.finish().unwrap();
+
+        //  Uploads the zip file.
+        let remote_path_str = remote_path.clone() + "/" + &temp_file;
+        upload
+        (
+            project,
+            &Path::new(&temp_file),
+            &Path::new(&remote_path_str),
+        );
+
+        let mut session = get_session(project);
         {
-            for path in paths
+            let mut channel = session.channel_new().unwrap();
+            channel.open_session().unwrap();
+            let command = format!
+            (
+                "unzip -o {} -d {} && rm {}",
+                &remote_path_str,
+                &remote_path,
+                &remote_path_str,
+            );
+            channel.request_exec(command.as_bytes()).unwrap();
+            channel.send_eof().unwrap();
+            channel.close();
+        }
+        std::fs::remove_file(&temp_file).unwrap();
+    }
+    else
+    {
+        for path in paths
+        {
+            let path_str = path.to_str().unwrap();
+            let remote_path_str = remote_path.clone()
+                + &path_str.replace(&git_src_path, "");
+
+            //  Skip if the target path is specified and the path is not in
+            //  the target path.
+            if target_path.len() > 0
             {
-                let path_str = path.to_str().unwrap();
-                let remote_path_str = remote_path.clone()
-                    + &path_str.replace(&git_src_path, "");
-
-                //  Skip if the target path is specified and the path is not in
-                //  the target path.
-                if target_path.len() > 0
+                let target_path = git_src_path.clone() + "/" + &target_path;
+                if path_str.starts_with(&target_path) == false
                 {
-                    let target_path = git_src_path.clone() + "/" + &target_path;
-                    if path_str.starts_with(&target_path) == false
-                    {
-                        continue;
-                    }
+                    continue;
                 }
-
-                upload(&mut scp, &path, &Path::new(&remote_path_str));
             }
+
+            upload(project, &path, &Path::new(&remote_path_str));
         }
     }
 
@@ -233,20 +223,13 @@ pub fn upload_patch
         return;
     }
 
-    //  Uploads all files.
-    let mut session = get_session(project);
+    //  Uploads files.
+    for path in paths
     {
-        let mut scp = session
-            .scp_new(WRITE|RECURSIVE, &remote_path)
-            .unwrap();
-
-        for path in paths
-        {
-            let path_str = path.to_str().unwrap();
-            let remote_path_str = remote_path.clone()
-                + &path_str.replace(&git_src_path, "");
-            upload(&mut scp, &Path::new(path_str), &Path::new(&remote_path_str));
-        }
+        let path_str = path.to_str().unwrap();
+        let remote_path_str = remote_path.clone()
+            + &path_str.replace(&git_src_path, "");
+        upload(project, &Path::new(path_str), &Path::new(&remote_path_str));
     }
 
     clear_cache(&project, &remote_cache_path);
@@ -256,7 +239,7 @@ pub fn upload_patch
 //------------------------------------------------------------------------------
 /// Uploads file to the remote server.
 //------------------------------------------------------------------------------
-fn upload( scp: &mut Scp, from: &Path, to: &Path )
+fn upload( project: &str, from: &Path, to: &Path )
 {
     println!
     (
@@ -268,37 +251,59 @@ fn upload( scp: &mut Scp, from: &Path, to: &Path )
 
     if from.is_dir()
     {
+        let mut session = get_session(project);
+        let mut scp = session
+            .scp_new(WRITE|RECURSIVE, to.to_str().unwrap())
+            .unwrap();
+        scp.init().unwrap();
         scp.push_directory(to, 0o755).unwrap();
+        scp.close();
     }
     else
     {
-        /*
-        if fs.metadata(Path::new(to).parent().unwrap()).is_err()
-        {
-            mkdir_all(fs, &Path::new(to).parent().unwrap()).
-        }
-        */
+        mkdir_all(project, to.parent().unwrap());
 
         let mut file = File::open(from).unwrap();
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).unwrap();
+
+        let mut session = get_session(project);
+        let mut scp = session
+            .scp_new(WRITE|RECURSIVE, to.to_str().unwrap())
+            .unwrap();
+        scp.init().unwrap();
         scp.push_file(to, buf.len(), 0o644).unwrap();
-        scp.write_all(&buf).unwrap();
+
+        let mut pos = 0;
+        while pos < buf.len()
+        {
+            let mut len = buf.len() - pos;
+            if len > 1024
+            {
+                len = 1024;
+            }
+            scp.write(&buf[pos..pos+len]).unwrap();
+            pos += len;
+        }
+        scp.close();
     }
 }
 
 //------------------------------------------------------------------------------
 /// Creates all directories in the path.
 //------------------------------------------------------------------------------
-fn mkdir_all( scp: &mut Scp, path: &Path )
+fn mkdir_all( project: &str, path: &Path )
 {
-    /*
-    if fs.metadata(path.parent().unwrap()).is_err()
+    let mut session = get_session(project);
     {
-        mkdir_all(fs, path.parent().unwrap()).
+        let mut channel = session.channel_new().unwrap();
+        channel.open_session().unwrap();
+        let command = format!("mkdir -p {}", path.to_str().unwrap());
+        channel.request_exec(command.as_bytes()).unwrap();
+        wait_exec(&channel);
+        channel.send_eof().unwrap();
+        channel.close();
     }
-    */
-    scp.push_directory(path, 0o755).unwrap();
 }
 
 //------------------------------------------------------------------------------
@@ -318,6 +323,7 @@ pub fn clear_cache( project: &str, remote_cache_path: &str )
             let command = format!("rm -r {}/*", remote_cache_path);
             channel.request_exec(command.as_bytes()).unwrap();
             channel.send_eof().unwrap();
+            channel.close();
         }
     }
 }
