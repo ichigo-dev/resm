@@ -3,7 +3,6 @@
 use crate::ssh_config::SshConfig;
 use crate::util::{
     get_session,
-    get_sftp_session,
     get_file_paths,
     print_sep,
     confirm,
@@ -17,14 +16,12 @@ use std::io::{ Read, Write };
 use colored::Colorize;
 use git2::{ Repository, StatusOptions };
 use zip::write::{ ZipWriter, FileOptions };
-use openssh::Session;
-use openssh_sftp_client::fs::Fs;
-use async_recursion::async_recursion;
+use ssh::{ Scp, WRITE, RECURSIVE };
 
 //------------------------------------------------------------------------------
 /// Uploads all files in the local repository to the remote server.
 //------------------------------------------------------------------------------
-pub async fn upload_all
+pub fn upload_all
 (
     project: &str,
     config: &SshConfig,
@@ -54,22 +51,27 @@ pub async fn upload_all
         return;
     }
 
-    let session = get_session(project).await;
-    session
-        .command("rm")
-        .args(["-r", &remote_target_path])
-        .output()
-        .await
-        .unwrap();
+    let mut session = get_session(project);
+    {
+        let mut channel = session.channel_new().unwrap();
+        channel.open_session().unwrap();
+        let command = format!("rm -r {}", &remote_target_path);
+        channel.request_exec(command.as_bytes()).unwrap();
+        channel.send_eof().unwrap();
 
+        let command = format!("mkdir {}", &remote_target_path);
+        channel.request_exec(command.as_bytes()).unwrap();
+        channel.send_eof().unwrap();
+    }
     println!("Removed.\n");
     println!("Upload files.");
 
     //  Uploads all files.
-    let sftp = get_sftp_session(project).await;
+    let mut session = get_session(project);
     {
-        let mut fs = sftp.fs();
-        mkdir_all(&mut fs, &Path::new(&remote_target_path)).await;
+        let mut scp = session
+            .scp_new(WRITE|RECURSIVE, &remote_target_path)
+            .unwrap();
         let paths = get_file_paths(&git_src_path);
 
         if zip
@@ -108,20 +110,30 @@ pub async fn upload_all
 
             //  Uploads the zip file.
             let remote_path_str = remote_path.clone() + "/" + &temp_file;
-            upload(&mut fs, &temp_file, &remote_path_str, false).await;
+            upload
+            (
+                &mut scp,
+                &Path::new(&temp_file),
+                &Path::new(&remote_path_str),
+            );
 
-            session
-                .command("unzip")
-                .args(["-o", &remote_path_str, "-d", &remote_path])
-                .output()
-                .await
-                .unwrap();
-            session
-                .command("rm")
-                .args(["-r", &remote_path_str])
-                .output()
-                .await
-                .unwrap();
+            let mut session = get_session(project);
+            {
+                let mut channel = session.channel_new().unwrap();
+                channel.open_session().unwrap();
+                let command = format!
+                (
+                    "unzip -o {} -d {}",
+                    &remote_path_str,
+                    &remote_path
+                );
+                channel.request_exec(command.as_bytes()).unwrap();
+                channel.send_eof().unwrap();
+
+                let command = format!("rm {}", &remote_path_str);
+                channel.request_exec(command.as_bytes()).unwrap();
+                channel.send_eof().unwrap();
+            }
             std::fs::remove_file(&temp_file).unwrap();
         }
         else
@@ -143,23 +155,20 @@ pub async fn upload_all
                     }
                 }
 
-                upload(&mut fs, path_str, &remote_path_str, path.is_dir())
-                    .await;
+                upload(&mut scp, &path, &Path::new(&remote_path_str));
             }
         }
     }
-    sftp.close().await.unwrap();
 
     println!("Done.\n");
-    clear_cache(&session, &remote_cache_path).await;
-    session.close().await.unwrap();
+    clear_cache(project, &remote_cache_path);
     println!("Done.");
 }
 
 //------------------------------------------------------------------------------
 /// Uploads only specified files in the local repository to the remote server.
 //------------------------------------------------------------------------------
-pub async fn upload_patch
+pub fn upload_patch
 (
     project: &str,
     config: &SshConfig,
@@ -225,91 +234,90 @@ pub async fn upload_patch
     }
 
     //  Uploads all files.
-    let sftp = get_sftp_session(project).await;
+    let mut session = get_session(project);
     {
-        let mut fs = sftp.fs();
+        let mut scp = session
+            .scp_new(WRITE|RECURSIVE, &remote_path)
+            .unwrap();
+
         for path in paths
         {
             let path_str = path.to_str().unwrap();
             let remote_path_str = remote_path.clone()
                 + &path_str.replace(&git_src_path, "");
-            upload(&mut fs, path_str, &remote_path_str, path.is_dir()).await;
+            upload(&mut scp, &Path::new(path_str), &Path::new(&remote_path_str));
         }
     }
-    sftp.close().await.unwrap();
 
-    println!("Done.\n");
-    let session = get_session(project).await;
-    clear_cache(&session, &remote_cache_path).await;
-    session.close().await.unwrap();
+    clear_cache(&project, &remote_cache_path);
     println!("Done.");
 }
 
 //------------------------------------------------------------------------------
 /// Uploads file to the remote server.
 //------------------------------------------------------------------------------
-async fn upload( fs: &mut Fs, from: &str, to: &str, is_dir: bool )
+fn upload( scp: &mut Scp, from: &Path, to: &Path )
 {
     println!
     (
         "{} : {} => {}",
         "Uploading".green(),
-        from,
-        to,
+        from.display(),
+        to.display(),
     );
 
-    if is_dir
+    if from.is_dir()
     {
-        fs.create_dir(to).await.unwrap();
+        scp.push_directory(to, 0o755).unwrap();
     }
     else
     {
-        if fs.metadata(Path::new(to).parent().unwrap()).await.is_err()
+        /*
+        if fs.metadata(Path::new(to).parent().unwrap()).is_err()
         {
-            mkdir_all(fs, &Path::new(to).parent().unwrap()).await;
+            mkdir_all(fs, &Path::new(to).parent().unwrap()).
         }
+        */
 
         let mut file = File::open(from).unwrap();
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).unwrap();
-        fs.write(to, &buf).await.unwrap();
+        scp.push_file(to, buf.len(), 0o644).unwrap();
+        scp.write_all(&buf).unwrap();
     }
 }
 
 //------------------------------------------------------------------------------
 /// Creates all directories in the path.
 //------------------------------------------------------------------------------
-#[async_recursion]
-async fn mkdir_all( fs: &mut Fs, path: &Path )
+fn mkdir_all( scp: &mut Scp, path: &Path )
 {
-    if fs.metadata(path.parent().unwrap()).await.is_err()
+    /*
+    if fs.metadata(path.parent().unwrap()).is_err()
     {
-        mkdir_all(fs, path.parent().unwrap()).await;
+        mkdir_all(fs, path.parent().unwrap()).
     }
-    fs.create_dir(path).await.unwrap();
+    */
+    scp.push_directory(path, 0o755).unwrap();
 }
 
 //------------------------------------------------------------------------------
 /// Clears the cache on the remote server.
 //------------------------------------------------------------------------------
-pub async fn clear_cache( session: &Session, remote_cache_path: &str )
+pub fn clear_cache( project: &str, remote_cache_path: &str )
 {
     print_sep();
     println!("{} : {}", "Remote cache path".green(), remote_cache_path);
     print_sep();
     if confirm("Delete the cache for the above path?")
     {
-        session
-            .command("rm")
-            .args(["-r", remote_cache_path])
-            .output()
-            .await
-            .unwrap();
-        session
-            .command("mkdir")
-            .args([remote_cache_path, "-m", "777"])
-            .output()
-            .await
-            .unwrap();
+        let mut session = get_session(project);
+        {
+            let mut channel = session.channel_new().unwrap();
+            channel.open_session().unwrap();
+            let command = format!("rm -r {}/*", remote_cache_path);
+            channel.request_exec(command.as_bytes()).unwrap();
+            channel.send_eof().unwrap();
+        }
     }
 }

@@ -7,9 +7,8 @@ use std::path::PathBuf;
 
 use glob::glob;
 use colored::Colorize;
-use openssh::{ Session, SessionBuilder };
-use openssh_sftp_client::{ Sftp, SftpOptions };
 use chrono::Local;
+use ssh::Session;
 
 //------------------------------------------------------------------------------
 /// Loads JSON files.
@@ -55,18 +54,15 @@ pub fn load_json( path: &str ) -> BTreeMap<String, SshConfig>
 //------------------------------------------------------------------------------
 /// Gets SSH channel for the specified project.
 //------------------------------------------------------------------------------
-pub async fn get_session( project: &str ) -> Session
+pub fn get_session( project: &str ) -> Session
 {
-    SessionBuilder::default().connect(project).await.unwrap()
-}
-
-//------------------------------------------------------------------------------
-/// Gets SFTP channel for the specified project.
-//------------------------------------------------------------------------------
-pub async fn get_sftp_session( project: &str ) -> Sftp
-{
-    let session = get_session(project).await;
-    Sftp::from_session(session, SftpOptions::default()).await.unwrap()
+    let mut session = Session::new().unwrap();
+    session.set_host(project).unwrap();
+    session.parse_config(None).unwrap();
+    session.connect().unwrap();
+    session.userauth_publickey_auto(None).unwrap();
+    session.channel_new().unwrap();
+    session
 }
 
 //------------------------------------------------------------------------------
