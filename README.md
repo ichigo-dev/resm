@@ -131,3 +131,11 @@ Backs up the remote directory.
 ### backup-db
 
 Backs up the database.
+
+
+## Caution
+
+This tool depends on packages that are only compatible with Unix, so if you are
+developing in a Windows environment, install this command on WSL and use the
+Windows files in `/mnt` as `git_path` or `git_src_path`. Be sure to specify a
+path in your system.

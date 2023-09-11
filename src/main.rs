@@ -127,7 +127,7 @@ mod util;
 use generate::generate_ssh_config;
 use upload::{ upload_all, upload_patch, clear_cache };
 use backup::{ backup, backup_db };
-use util::load_json;
+use util::{ load_json, get_session };
 
 use std::env;
 
@@ -273,7 +273,8 @@ enum Subcommands
     },
 }
 
-fn main()
+#[tokio::main]
+async fn main()
 {
     let cli = Cli::parse();
 
@@ -316,7 +317,7 @@ fn main()
         {
             if let Some(config) = config_entries.get(&project)
             {
-                upload_all(&project, config, target_path, zip);
+                upload_all(&project, config, target_path, zip).await;
             }
             else
             {
@@ -328,7 +329,7 @@ fn main()
         {
             if let Some(config) = config_entries.get(&project)
             {
-                upload_patch(&project, config, patch_file);
+                upload_patch(&project, config, patch_file).await;
             }
             else
             {
@@ -340,7 +341,9 @@ fn main()
         {
             if let Some(config) = config_entries.get(&project)
             {
-                clear_cache(&project, &config.remote_cache_path());
+                let session = get_session(&project).await;
+                clear_cache(&session, &config.remote_cache_path()).await;
+                session.close().await.unwrap();
             }
             else
             {
@@ -352,7 +355,7 @@ fn main()
         {
             if let Some(config) = config_entries.get(&project)
             {
-                backup(&project, config, target_path);
+                backup(&project, config, target_path).await;
             }
             else
             {
@@ -364,7 +367,7 @@ fn main()
         {
             if let Some(config) = config_entries.get(&project)
             {
-                backup_db(&project, config, target_tables);
+                backup_db(&project, config, target_tables).await;
             }
             else
             {

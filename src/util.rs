@@ -7,8 +7,9 @@ use std::path::PathBuf;
 
 use glob::glob;
 use colored::Colorize;
+use openssh::{ Session, SessionBuilder };
+use openssh_sftp_client::{ Sftp, SftpOptions };
 use chrono::Local;
-use ssh::{ Session, Channel };
 
 //------------------------------------------------------------------------------
 /// Loads JSON files.
@@ -54,26 +55,18 @@ pub fn load_json( path: &str ) -> BTreeMap<String, SshConfig>
 //------------------------------------------------------------------------------
 /// Gets SSH channel for the specified project.
 //------------------------------------------------------------------------------
-pub fn get_session( project: &str ) -> Session
+pub async fn get_session( project: &str ) -> Session
 {
-    let mut session = Session::new().unwrap();
-    session.set_host(project).unwrap();
-    session.parse_config(None).unwrap();
-    session.connect().unwrap();
-    session.userauth_publickey_auto(None).unwrap();
-    session.channel_new().unwrap();
-    session
+    SessionBuilder::default().connect(project).await.unwrap()
 }
 
 //------------------------------------------------------------------------------
-/// Waits for the specified channel to finish.
+/// Gets SFTP channel for the specified project.
 //------------------------------------------------------------------------------
-pub fn wait_exec( channel: &Channel )
+pub async fn get_sftp_session( project: &str ) -> Sftp
 {
-    while channel.get_exit_status().is_none()
-    {
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
+    let session = get_session(project).await;
+    Sftp::from_session(session, SftpOptions::default()).await.unwrap()
 }
 
 //------------------------------------------------------------------------------
@@ -82,6 +75,7 @@ pub fn wait_exec( channel: &Channel )
 pub fn get_file_paths( dir: &str ) -> Vec<PathBuf>
 {
     let mut file_paths: Vec<PathBuf> = Vec::new();
+    println!("{}", dir);
     for entry in glob(&(dir.to_string() + "/**/*")).unwrap()
     {
         match entry

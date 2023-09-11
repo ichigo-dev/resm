@@ -3,16 +3,15 @@
 use crate::ssh_config::SshConfig;
 use crate::util::{
     get_session,
-    wait_exec,
+    get_sftp_session,
     print_sep,
     get_current_time_for_filename,
 };
 
 use std::fs::File;
-use std::io::{ Write, Read };
+use std::io::Write;
 
 use colored::Colorize;
-use ssh::READ;
 
 //------------------------------------------------------------------------------
 /// Backs up the remote directory.
@@ -24,7 +23,7 @@ use ssh::READ;
 /// - `target_path` - Relative path from the project directory that you want to
 /// upload.
 //------------------------------------------------------------------------------
-pub fn backup
+pub async fn backup
 (
     project: &str,
     config: &SshConfig,
@@ -57,36 +56,28 @@ pub fn backup
     print_sep();
 
     //  Gets the backup file.
-    let mut session = get_session(project);
+    let session = get_session(project).await;
+    session
+        .command("zip")
+        .args(["-r", &backup_file, &remote_path])
+        .output()
+        .await
+        .unwrap();
+    let sftp = get_sftp_session(project).await;
     {
-        let mut channel = session.channel_new().unwrap();
-        channel.open_session().unwrap();
-        let command = format!("zip -r {} {}", &backup_file, &remote_path);
-        channel.request_exec(command.as_bytes()).unwrap();
-        wait_exec(&channel);
-        channel.send_eof().unwrap();
-        channel.close();
-    }
-
-    {
-        let mut scp = session.scp_new(READ, &backup_file).unwrap();
-        scp.init().unwrap();
-        let mut buf:Vec<u8> = Vec::new();
-        scp.reader().read_to_end(&mut buf).unwrap();
-
+        let mut fs = sftp.fs();
+        let content = fs.read(&backup_file).await.unwrap();
         let mut file = File::create(&backup_path).unwrap();
-        file.write_all(&buf).unwrap();
-        scp.close();
+        file.write_all(&content).unwrap();
     }
-
-    {
-        let mut channel = session.channel_new().unwrap();
-        channel.open_session().unwrap();
-        let command = format!("rm {}", &backup_file);
-        channel.request_exec(command.as_bytes()).unwrap();
-        channel.send_eof().unwrap();
-        channel.close();
-    }
+    sftp.close().await.unwrap();
+    session
+        .command("rm")
+        .arg(&backup_file)
+        .output()
+        .await
+        .unwrap();
+    session.close().await.unwrap();
     println!("Done.");
 }
 
@@ -99,7 +90,7 @@ pub fn backup
 /// - `config` - SSH configuration.
 /// - `target_tables` - Tables to be backed up.
 //------------------------------------------------------------------------------
-pub fn backup_db
+pub async fn backup_db
 (
     project: &str,
     config: &SshConfig,
@@ -121,38 +112,29 @@ pub fn backup_db
     }
     print_sep();
 
+    //  Gets the backup file.
+    println!("Dumping...\n");
+    let session = get_session(project).await;
     let target_tables = target_tables
         .iter()
         .map(|x| x.as_str())
         .collect::<Vec<&str>>();
-
-    //  Gets the backup file.
-    println!("Dumping...\n");
-    let mut session = get_session(project);
-    {
-        let mut channel = session.channel_new().unwrap();
-        channel.open_session().unwrap();
-        let command = format!("mysqldump -h {} -P {} -u {} -p{} {} {}",
-            &config.db_host_reader(),
-            &config.db_port().to_string(),
-            &config.db_root_user(),
-            &config.db_root_password(),
+    let dump = session
+        .command("mysqldump")
+        .args([
+            "-h", &config.db_host_reader(),
+            "-P", &config.db_port().to_string(),
+            "-u", &config.db_root_user(),
+            &("-p".to_string() + &config.db_root_password()),
             &config.db_name(),
-            &target_tables.join(" "),
-        );
-        channel.request_exec(command.as_bytes()).unwrap();
-        wait_exec(&channel);
-        channel.send_eof().unwrap();
-
-        let mut buf = Vec::new();
-        channel.stdout().read_to_end(&mut buf).unwrap();
-        let mut err = Vec::new();
-        channel.stderr().read_to_end(&mut err).unwrap();
-        channel.close();
-
-        println!("{}", String::from_utf8_lossy(&err));
-        let mut file = File::create(&backup_path).unwrap();
-        file.write_all(&buf).unwrap();
-    }
+        ])
+        .args(target_tables)
+        .output()
+        .await
+        .unwrap();
+    println!("{}", String::from_utf8_lossy(&dump.stderr));
+    let mut file = File::create(&backup_path).unwrap();
+    file.write_all(&dump.stdout).unwrap();
+    session.close().await.unwrap();
     println!("Done.");
 }
