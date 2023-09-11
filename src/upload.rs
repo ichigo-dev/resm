@@ -3,7 +3,6 @@
 use crate::ssh_config::SshConfig;
 use crate::util::{
     get_session,
-    wait_exec,
     get_file_paths,
     print_sep,
     confirm,
@@ -17,7 +16,7 @@ use std::io::{ Read, Write };
 use colored::Colorize;
 use git2::{ Repository, StatusOptions };
 use zip::write::{ ZipWriter, FileOptions };
-use ssh::{ WRITE, RECURSIVE };
+use ssh::{ Scp, WRITE, RECURSIVE };
 
 //------------------------------------------------------------------------------
 /// Uploads all files in the local repository to the remote server.
@@ -67,6 +66,11 @@ pub fn upload_all
     println!("Upload files.");
     let paths = get_file_paths(&git_src_path);
 
+    let mut session = get_session(project);
+    let mut scp = session
+        .scp_new(WRITE|RECURSIVE, &remote_path)
+        .unwrap();
+    scp.init().unwrap();
     if zip
     {
         //  Creates a temporary zip file.
@@ -105,7 +109,8 @@ pub fn upload_all
         let remote_path_str = remote_path.clone() + "/" + &temp_file;
         upload
         (
-            project,
+            &mut scp,
+            &Path::new(&remote_path),
             &Path::new(&temp_file),
             &Path::new(&remote_path_str),
         );
@@ -146,9 +151,16 @@ pub fn upload_all
                 }
             }
 
-            upload(project, &path, &Path::new(&remote_path_str));
+            upload
+            (
+                &mut scp,
+                &Path::new(&remote_path),
+                &path,
+                &Path::new(&remote_path_str),
+            );
         }
     }
+    scp.close();
 
     println!("Done.\n");
     clear_cache(project, &remote_cache_path);
@@ -224,13 +236,25 @@ pub fn upload_patch
     }
 
     //  Uploads files.
+    let mut session = get_session(project);
+    let mut scp = session
+        .scp_new(WRITE|RECURSIVE, remote_path.as_str())
+        .unwrap();
+    scp.init().unwrap();
     for path in paths
     {
         let path_str = path.to_str().unwrap();
         let remote_path_str = remote_path.clone()
             + &path_str.replace(&git_src_path, "");
-        upload(project, &Path::new(path_str), &Path::new(&remote_path_str));
+        upload
+        (
+            &mut scp,
+            &Path::new(&remote_path),
+            &Path::new(path_str),
+            &Path::new(&remote_path_str),
+        );
     }
+    scp.close();
 
     clear_cache(&project, &remote_cache_path);
     println!("Done.");
@@ -239,7 +263,13 @@ pub fn upload_patch
 //------------------------------------------------------------------------------
 /// Uploads file to the remote server.
 //------------------------------------------------------------------------------
-fn upload( project: &str, from: &Path, to: &Path )
+fn upload
+(
+    scp: &mut Scp,
+    remote_path: &Path,
+    from: &Path,
+    to: &Path,
+)
 {
     println!
     (
@@ -251,29 +281,28 @@ fn upload( project: &str, from: &Path, to: &Path )
 
     if from.is_dir()
     {
-        let mut session = get_session(project);
-        let mut scp = session
-            .scp_new(WRITE|RECURSIVE, to.to_str().unwrap())
-            .unwrap();
-        scp.init().unwrap();
         scp.push_directory(to, 0o755).unwrap();
-        scp.close();
     }
     else
     {
-        mkdir_all(project, to.parent().unwrap());
-
         let mut file = File::open(from).unwrap();
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).unwrap();
 
-        let mut session = get_session(project);
-        let mut scp = session
-            .scp_new(WRITE|RECURSIVE, to.to_str().unwrap())
-            .unwrap();
-        scp.init().unwrap();
-        scp.push_file(to, buf.len(), 0o644).unwrap();
+        let mut move_to = to
+            .strip_prefix(remote_path)
+            .unwrap()
+            .to_path_buf();
+        move_to.pop();
+        let move_to = move_to.iter();
+        let mut len = 0;
+        for dir in move_to
+        {
+            scp.push_directory(dir, 0o755).unwrap();
+            len += 1;
+        }
 
+        scp.push_file(to, buf.len(), 0o644).unwrap();
         let mut pos = 0;
         while pos < buf.len()
         {
@@ -285,24 +314,11 @@ fn upload( project: &str, from: &Path, to: &Path )
             scp.write(&buf[pos..pos+len]).unwrap();
             pos += len;
         }
-        scp.close();
-    }
-}
 
-//------------------------------------------------------------------------------
-/// Creates all directories in the path.
-//------------------------------------------------------------------------------
-fn mkdir_all( project: &str, path: &Path )
-{
-    let mut session = get_session(project);
-    {
-        let mut channel = session.channel_new().unwrap();
-        channel.open_session().unwrap();
-        let command = format!("mkdir -p {}", path.to_str().unwrap());
-        channel.request_exec(command.as_bytes()).unwrap();
-        wait_exec(&channel);
-        channel.send_eof().unwrap();
-        channel.close();
+        for _ in 0..len
+        {
+            scp.leave_directory().unwrap();
+        }
     }
 }
 
