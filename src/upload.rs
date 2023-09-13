@@ -269,10 +269,16 @@ async fn upload( fs: &mut Fs, from: &str, to: &str, is_dir: bool )
             mkdir_all(fs, &Path::new(to).parent().unwrap()).await;
         }
 
-        let mut file = File::open(from).unwrap();
-        let mut buf = Vec::new();
-        file.read_to_end(&mut buf).unwrap();
-        fs.write(to, &buf).await.unwrap();
+        if let Ok(mut file) = File::open(from)
+        {
+            let mut buf = Vec::new();
+            file.read_to_end(&mut buf).unwrap();
+            fs.write(to, &buf).await.unwrap();
+        }
+        else
+        {
+            println!("Skip to upload the file.");
+        }
     }
 }
 
