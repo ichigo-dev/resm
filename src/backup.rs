@@ -44,7 +44,7 @@ pub async fn backup
     }
     else
     {
-        format!("/{}_{}.zip", project, &now)
+        format!("{}_{}.zip", project, &now)
     };
     let backup_path = backup_path + "/" + &backup_file;
 
@@ -54,6 +54,7 @@ pub async fn backup
     println!("{} : {}", "Backup path".green(), &backup_path);
     println!("{} : {}", "Remote path".green(), &remote_path);
     print_sep();
+    println!("Exporting...\n");
 
     //  Gets the backup file.
     let session = get_session(project).await;
@@ -111,6 +112,7 @@ pub async fn backup_db
         println!("{} : {}", "Target tables".green(), &target_tables.join(", "));
     }
     print_sep();
+    println!("Exporting...\n");
 
     //  Gets the backup file.
     println!("Dumping...\n");

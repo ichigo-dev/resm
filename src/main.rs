@@ -309,7 +309,24 @@ async fn main()
             }
             else
             {
-                println!("Project not found.");
+                let mut found = false;
+                for (key, value) in config_entries.iter()
+                {
+                    if key.starts_with(&project)
+                    {
+                        println!
+                        (
+                            "{}",
+                            serde_json::to_string_pretty(&value).unwrap()
+                        );
+                        found = true;
+                    }
+                }
+
+                if !found
+                {
+                    println!("Project not found.");
+                }
                 return;
             }
         },
@@ -321,7 +338,20 @@ async fn main()
             }
             else
             {
-                println!("Project not found.");
+                let mut found = false;
+                for (key, value) in config_entries.iter()
+                {
+                    if key.starts_with(&project)
+                    {
+                        upload_all(&key, value, target_path.clone(), zip).await;
+                        found = true;
+                    }
+                }
+
+                if !found
+                {
+                    println!("Project not found.");
+                }
                 return;
             }
         },
@@ -333,7 +363,20 @@ async fn main()
             }
             else
             {
-                println!("Project not found.");
+                let mut found = false;
+                for (key, value) in config_entries.iter()
+                {
+                    if key.starts_with(&project)
+                    {
+                        upload_patch(&key, value, patch_file.clone()).await;
+                        found = true;
+                    }
+                }
+
+                if !found
+                {
+                    println!("Project not found.");
+                }
                 return;
             }
         },
@@ -347,7 +390,22 @@ async fn main()
             }
             else
             {
-                println!("Project not found.");
+                let mut found = false;
+                for (key, value) in config_entries.iter()
+                {
+                    if key.starts_with(&project)
+                    {
+                        let session = get_session(&key).await;
+                        clear_cache(&session, &value.remote_cache_path()).await;
+                        session.close().await.unwrap();
+                        found = true;
+                    }
+                }
+
+                if !found
+                {
+                    println!("Project not found.");
+                }
                 return;
             }
         }
@@ -359,7 +417,20 @@ async fn main()
             }
             else
             {
-                println!("Project not found.");
+                let mut found = false;
+                for (key, value) in config_entries.iter()
+                {
+                    if key.starts_with(&project)
+                    {
+                        backup(&key, value, target_path.clone()).await;
+                        found = true;
+                    }
+                }
+
+                if !found
+                {
+                    println!("Project not found.");
+                }
                 return;
             }
         },
@@ -371,7 +442,20 @@ async fn main()
             }
             else
             {
-                println!("Project not found.");
+                let mut found = false;
+                for (key, value) in config_entries.iter()
+                {
+                    if key.starts_with(&project)
+                    {
+                        backup_db(&key, value, target_tables.clone()).await;
+                        found = true;
+                    }
+                }
+
+                if !found
+                {
+                    println!("Project not found.");
+                }
                 return;
             }
         },

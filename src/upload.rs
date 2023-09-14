@@ -171,6 +171,7 @@ pub async fn upload_patch
     let remote_cache_path = config.remote_cache_path();
 
     let mut paths = Vec::new();
+    let mut branch_name = None;
     if patch_file.len() > 0
     {
         //  Reads the patch file.
@@ -200,6 +201,13 @@ pub async fn upload_patch
             }
             paths.push(PathBuf::from(&(git_path.clone() + "/" + path)));
         }
+
+        let head = repo.head().unwrap();
+        branch_name = match head.shorthand()
+        {
+            Some(name) => Some(name.to_string()),
+            None => None,
+        };
     }
 
     if paths.len() == 0
@@ -212,6 +220,10 @@ pub async fn upload_patch
     println!("{} : {}", "Project    ".green(), &config.project());
     println!("{} : {}", "Environment".green(), &config.environment());
     println!("{} : {}", "Remote path".green(), &remote_path);
+    if let Some(branch_name) = branch_name
+    {
+        println!("{} : {}", "Branch name".green(), &branch_name);
+    }
     println!("{} :",    "Files      ".green());
     for path in &paths
     {

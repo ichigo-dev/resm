@@ -1,6 +1,6 @@
 [package]
 name = "resm"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["ichigo-dev <dev.honda.ichigo@gmail.com>"]
 description = "Remote Server Management tools"
