@@ -1,0 +1,26 @@
+version: '3'
+
+services:
+  resm:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+      args:
+        - USER=${USER}
+        - HOME=${HOME}
+    restart: always
+    tty: true
+    volumes:
+      - ${REPO_DIR}:${HOME}/repo
+      - ${ENV_DIR}:${HOME}/env
+      - ${BACKUP_DIR}:${HOME}/bkup
+    environment:
+      - HOME=${HOME}
+    command: >
+      /bin/bash -c "
+        resm init
+        mkdir ${HOME}/.ssh
+        mv config ${HOME}/.ssh/
+        find ${HOME}/env -name \'*.pem\' -or -name \'*.ppk\' -exec chmod 600 {}; \\
+        /bin/bash
+      "
