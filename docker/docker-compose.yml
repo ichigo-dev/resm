@@ -1,5 +1,3 @@
-version: '3'
-
 services:
   resm:
     build:
@@ -21,6 +19,8 @@ services:
         resm init
         mkdir ${HOME}/.ssh
         mv config ${HOME}/.ssh/
+        sudo chown ${USER} repo -R
+        git config --global core.autocrlf true
         find ${HOME}/env -name \'*.pem\' -or -name \'*.ppk\' -exec chmod 600 {}; \\
         /bin/bash
       "
